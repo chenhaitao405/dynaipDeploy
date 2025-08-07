@@ -157,8 +157,9 @@ class IMUDataProcessor:
 
             # 重力补偿
             # 使用校准后的旋转矩阵投影加速度
-            gravity_compensaton = torch.tensor([0., 0., -1.],
+            gravity_compensaton = torch.tensor([0., 0., 1.],
                                                dtype=acc.dtype)
+            acc = -acc
             acc_calibrated = RIS.bmm(acc.unsqueeze(-1)).squeeze(-1) + gravity_compensaton
 
             acc_calibrated *= 9.8
