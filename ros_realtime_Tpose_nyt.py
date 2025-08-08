@@ -43,6 +43,13 @@ class IMUDataProcessor:
 
     def perform_tpose_calibration(self):
         """执行T-pose校准（合并RMI和T-pose校准）"""
+
+        _RMS_ = torch.tensor([[[-1, 0, 0], [0, -1, 0], [0, 0, 1.]],  # z朝前，x朝左，y朝下
+                              [[-1, 0, 0], [0, -1, 0], [0, 0, 1.]],
+                              [[-1, 0, 0], [0, -1, 0], [0, 0, 1.]],
+                              [[-1, 0, 0], [0, -1, 0], [0, 0, 1.]],
+                              [[0, 1, 0], [0, 0, 1], [1, 0, 0.]],  # z朝上，x朝前，y朝左
+                              [[0, 1, 0], [0, 0, 1], [1, 0, 0.]]])
         rospy.loginfo("开始T-pose校准流程...")
 
         # 提示用户准备
@@ -74,10 +81,10 @@ class IMUDataProcessor:
 
             imu_array = raw_data.reshape(self.num_imus, self.data_per_imu)
             self.calib_imu = raw_data
-            # 1. RMI校准 - 使用IMU 5（索引4）
-            imu5_rotation = torch.from_numpy(imu_array[0][:9].reshape(3, 3)).float()
+            # 1. RMI校准
+            imu5_rotation = torch.from_numpy(imu_array[:,:9].reshape(6,-1, -1)).float()
             RSI = imu5_rotation.t()
-            self.RMI = torch.tensor([[-1, 0, 0], [0, -1, 0], [0, 0, 1.]]).mm(RSI)
+            self.RMI = _RMS_.bmm(RSI)
             rospy.loginfo(f"RMI校准完成: \n{self.RMI}")
 
             # 2. T-pose校准 - 使用所有IMU
@@ -89,7 +96,7 @@ class IMUDataProcessor:
             RIS = torch.stack(RIS_list, dim=0)
 
             # 计算RSB
-            self.RSB = self.RMI.matmul(RIS).transpose(1, 2).matmul(torch.eye(3))
+            self.RSB = self.RMI.bmm(RIS).transpose(1, 2).matmul(torch.eye(3))
 
             # 保存RSB（如果需要）
             torch.save(self.RSB, os.path.join(self.temp_dir, 'RSB.pt'))
@@ -171,7 +178,7 @@ class IMUDataProcessor:
             RMB = torch.einsum('ij,njk,nkl->nil', self.RMI, RIS, self.RSB)
 
             # 转换到模型坐标系
-            acc_model = acc_calibrated.mm(self.RMI.t())
+            acc_model = self.RMI.matmul(acc_calibrated.unsqueeze(-1)).squeeze(-1)
 
             # 11. 归一化IMU数据
             single_imu = normalize_imu(acc_model, RMB)  # (1, 6, 12)
