@@ -82,8 +82,7 @@ class IMUDataProcessor:
             imu_array = raw_data.reshape(self.num_imus, self.data_per_imu)
             self.calib_imu = raw_data
             # 1. RMI校准
-            imu5_rotation = torch.from_numpy(imu_array[:,:9].reshape(6,-1, -1)).float()
-            RSI = imu5_rotation.t()
+            RSI = torch.from_numpy(imu_array[:,:9].reshape(6,3, -1)).float().transpose(1,2)
             self.RMI = _RMS_.bmm(RSI)
             rospy.loginfo(f"RMI校准完成: \n{self.RMI}")
 
@@ -175,7 +174,7 @@ class IMUDataProcessor:
 
             # 8. 应用T-pose校准 - 保持在CPU
             # 计算校准后的旋转矩阵：RMB = RMI @ RIS @ RSB
-            RMB = torch.einsum('ij,njk,nkl->nil', self.RMI, RIS, self.RSB)
+            RMB = self.RMI.bmm(RIS).bmm(self.RSB)
 
             # 转换到模型坐标系
             acc_model = self.RMI.matmul(acc_calibrated.unsqueeze(-1)).squeeze(-1)
