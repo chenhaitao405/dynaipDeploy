@@ -44,13 +44,14 @@ class IMUDataProcessor:
     def perform_tpose_calibration(self):
         """执行T-pose校准（合并RMI和T-pose校准）"""
 
-
-        _RMS_ = torch.tensor([[[-1, 0, 0], [0, -1, 0], [0, 0, 1.]],  # z朝前，x朝左，y朝下
-                              [[-1, 0, 0], [0, -1, 0], [0, 0, 1.]],
-                              [[-1, 0, 0], [0, -1, 0], [0, 0, 1.]],
-                              [[-1, 0, 0], [0, -1, 0], [0, 0, 1.]],
-                              [[0, 1, 0], [0, 0, 1], [1, 0, 0.]],  # z朝上，x朝前，y朝左
-                              [[0, 1, 0], [0, 0, 1], [1, 0, 0.]]])
+                            # [0, -1, 0], [0, 0, -1], [-1, 0, 0.]
+        _RMS_ = torch.tensor([   [ [1, 0, 0], [0, 1, 0], [0, 0, 1.]],  # z朝上，x朝前，y朝左
+                              [ [1, 0, 0], [0, 1, 0], [0, 0, 1.]],
+                              [ [1, 0, 0], [0, 1, 0], [0, 0, 1.]],#右腿
+                              [ [1, 0, 0], [0, 1, 0], [0, 0, 1.]],
+                                [[0, -1, 0], [0, 0, -1], [-1, 0, 0.]],
+                                 [[0, -1, 0], [0, 0, -1], [-1, 0, 0.]],
+                           ])
         rospy.loginfo("开始T-pose校准流程...")
 
         # 提示用户准备
@@ -166,7 +167,7 @@ class IMUDataProcessor:
             # 使用校准后的旋转矩阵投影加速度
             gravity_compensaton = torch.tensor([0., 0., 1.],
                                                dtype=acc.dtype)
-            acc = -acc
+
             acc_calibrated = RIS.bmm(acc.unsqueeze(-1)).squeeze(-1) + gravity_compensaton
 
             acc_calibrated *= 9.8
