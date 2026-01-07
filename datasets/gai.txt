@@ -1,0 +1,91 @@
+// Step 1: 分离6个传感器的旋转矩阵和加速度数据
+float ori[6][9];  // 6个传感器，每个3x3旋转矩阵（行优先）
+float acc[6][3];   // 6个传感器，每个3维加速度
+
+for (int i = 0; i < 6; i++) {
+    // 复制旋转矩阵 (9个元素)
+    for (int j = 0; j < 9; j++) {
+        ori[i][j] = imu_data[i * 12 + j];
+    }
+    // 复制加速度 (3个元素)
+    for (int j = 0; j < 3; j++) {
+        acc[i][j] = imu_data[i * 12 + 9 + j];
+    }
+}
+
+// Step 2: 预处理加速度 (局部坐标系->世界坐标系 + 重力补偿)
+for (int i = 0; i < 6; i++) {
+    // 1. 先对加速度取反（Python: acc = -acc）
+    float reversed_acc[3];
+    for (int j = 0; j < 3; j++) {
+        reversed_acc[j] = -acc[i][j];
+    }
+
+    // 2. 将加速度从局部坐标系转换到世界坐标系
+    // Python: RIS.bmm(acc.unsqueeze(-1)).squeeze(-1)
+    float temp_acc[3];
+    matmul_3x3_3x1(ori[i], reversed_acc, temp_acc);
+
+    // 3. 重力补偿：加上[0, 0, 1]
+    temp_acc[2] += 1.0f;
+
+    // 4. 乘以9.8
+    for (int j = 0; j < 3; j++) {
+        acc[i][j] = temp_acc[j] * 9.8f;
+    }
+}
+
+// 检查校准是否完成
+if (!calibration_done_) {
+    LOGE("Calibration not done! Cannot apply RMI and RSB transforms.");
+    // 如果没有校准，直接进行后续的归一化处理
+} else {
+    // Step 3: 应用T-pose校准
+
+    // ① 将加速度转换到模型坐标系
+    // Python: acc_model = self.RMI.matmul(acc_calibrated.unsqueeze(-1)).squeeze(-1)
+    float acc_model[6][3];
+    for (int i = 0; i < 6; i++) {
+        // 获取第i个IMU的RMI矩阵 (每个IMU有自己的3x3 RMI矩阵)
+        const float* RMI_i = &internal_RMI_[i * 9];
+        
+        // acc_model[i] = RMI[i] * acc[i]
+        for (int row = 0; row < 3; row++) {
+            acc_model[i][row] = 0;
+            for (int col = 0; col < 3; col++) {
+                acc_model[i][row] += RMI_i[row * 3 + col] * acc[i][col];
+            }
+        }
+    }
+
+    // 更新acc数组为模型坐标系下的加速度
+    for (int i = 0; i < 6; i++) {
+        for (int j = 0; j < 3; j++) {
+            acc[i][j] = acc_model[i][j];
+        }
+    }
+
+    // ② 计算校准后的旋转矩阵：RMB = RMI @ RIS @ RSB
+    // Python: RMB = self.RMI.bmm(RIS).bmm(self.RSB)
+    float RMB[6][9];  // 校准后的旋转矩阵
+
+    for (int n = 0; n < 6; n++) {
+        // 获取第n个IMU的RMI和RSB矩阵
+        const float* RMI_n = &internal_RMI_[n * 9];
+        const float* RSB_n = &internal_RSB_[n * 9];
+        
+        // 首先计算 temp = RMI[n] @ ori[n]
+        float temp[9];
+        matmul3x3(RMI_n, ori[n], temp);
+
+        // 然后计算 RMB[n] = temp @ RSB[n]
+        matmul3x3(temp, RSB_n, RMB[n]);
+    }
+
+    // 更新ori数组为校准后的值
+    for (int i = 0; i < 6; i++) {
+        for (int j = 0; j < 9; j++) {
+            ori[i][j] = RMB[i][j];
+        }
+    }
+}
